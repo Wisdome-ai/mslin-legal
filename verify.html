@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Ms. Lin 信箱驗證</title>
+<style>
+  :root { --brand:#5b5bff; --bg:#EEEEFF; }
+  * { box-sizing:border-box; }
+  body{font-family:-apple-system,system-ui,"PingFang TC","Noto Sans TC",sans-serif;margin:0;
+       background:var(--bg);min-height:100vh;display:flex;align-items:center;justify-content:center;
+       color:#1f2430;padding:20px}
+  .card{background:#fff;max-width:420px;width:100%;padding:32px 24px;border-radius:20px;
+        box-shadow:0 8px 30px rgba(80,80,160,.15);text-align:center}
+  .logo{width:72px;height:72px;border-radius:18px;margin:0 auto 16px;background:var(--bg);
+        display:flex;align-items:center;justify-content:center;font-size:34px}
+  #status{font-size:20px;font-weight:700;margin:4px 0 2px;min-height:28px}
+  #detail{font-size:14px;color:#888;margin-bottom:4px;min-height:18px}
+  .intro{margin:18px 0;color:#555;line-height:1.7;font-size:15px}
+  a.btn{display:block;margin:10px 0;padding:14px;border-radius:12px;text-decoration:none;font-weight:600}
+  a.primary{background:var(--brand);color:#fff}
+  a.ghost{background:#f0f0f7;color:var(--brand)}
+  .spinner{width:26px;height:26px;border:3px solid #d8d8f0;border-top-color:var(--brand);
+           border-radius:50%;margin:8px auto;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  [hidden]{display:none}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="logo">📚</div>
+  <div id="spin" class="spinner"></div>
+  <div id="status">驗證中…</div>
+  <div id="detail"></div>
+
+  <section id="intro" class="intro" hidden>
+    <p>歡迎使用 <b>Ms. Lin</b>！<br>拍照即解題、自動整理錯題本，<br>陪你準備學測 / 會考。</p>
+  </section>
+
+  <a id="openApp" class="btn primary" hidden>開啟 App</a>
+  <a id="store"  class="btn ghost"  hidden target="_blank" rel="noopener">還沒安裝？取得 App</a>
+</main>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+// ── 兩個環境設定 ─────────────────────────────────────────────
+// anon key 是 public（本來就嵌在 App 內），可安全放前端。
+// Supabase URL 取自各專案 ref；scheme 對齊 gsat-app appVariant.js。
+const ENVS = {
+  prod: {
+    url:   'https://rvmetywbpdmmxcxttwtn.supabase.co',
+    anon:  'sb_publishable_E5Ym9-GEru4WwBq9Q2yz5g_WedXMvF9',
+    scheme:'mslin://',
+    store: 'https://apps.apple.com/app/id6761799933', // 上架後生效
+  },
+  stage: {
+    url:   'https://rnndvcgwgblhuqhymhat.supabase.co',
+    anon:  'sb_publishable__wr29yRsrtF6sVFGCkF_2Q_wVOjuClb',
+    scheme:'mslinbeta://',
+    store: '',                                         // staging 只在 TestFlight；填外部測試連結或留空
+  },
+}
+
+const qs = new URLSearchParams(location.search)
+const env = ENVS[qs.get('env')] ?? ENVS.prod          // fail-safe：未指定 → prod
+const token_hash = qs.get('token_hash')
+const type = qs.get('type') || 'email'                // Supabase {{ .Type }}（signup / email …）
+const $ = id => document.getElementById(id)
+
+function show(statusText, detailText) {
+  $('spin').hidden = true
+  $('status').textContent = statusText
+  $('detail').textContent = detailText || ''
+}
+
+function ok() {
+  show('✅ 信箱驗證成功！')
+  $('intro').hidden = false
+  const open = $('openApp'); open.hidden = false; open.href = env.scheme
+  if (env.store) { const s = $('store'); s.hidden = false; s.href = env.store }
+}
+
+;(async () => {
+  // Supabase 有時會把錯誤直接放在 URL（連結過期等）
+  const urlErr = qs.get('error_description') || qs.get('error')
+  if (urlErr) return show('⚠️ 驗證失敗', decodeURIComponent(urlErr))
+  if (!token_hash) return show('⚠️ 連結無效', '缺少驗證參數，請改用信件中的完整連結。')
+
+  try {
+    // persistSession:false → 在電腦 / 共用裝置驗證後不留下登入狀態
+    const sb = createClient(env.url, env.anon, { auth:{ persistSession:false } })
+    const { error } = await sb.auth.verifyOtp({ token_hash, type })
+    if (error) return show('⚠️ 驗證失敗', error.message)
+    ok()
+  } catch (e) {
+    show('⚠️ 發生錯誤', String(e?.message || e))
+  }
+})()
+</script>
+</body>
+</html>
