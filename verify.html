@@ -63,6 +63,13 @@ const ENVS = {
     icon:  'icon-beta.png',
     store: '',                                         // staging 只在 TestFlight；填外部測試連結或留空
   },
+  local: {                                             // local = 雲端 dev 專案（非本地 Supabase）
+    url:   'https://nqiqeyuavkweyinzcfkc.supabase.co',
+    anon:  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xaXFleXVhdmt3ZXlpbnpjZmtjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2OTE5MDAsImV4cCI6MjA5NjI2NzkwMH0.mPWlLuk1kd98Jo7Q5WTGITi3_g8xo7OnkUL6zcvJ17U',
+    scheme:'mslinbeta://',
+    icon:  'icon-beta.png',
+    store: '',
+  },
 }
 
 const qs = new URLSearchParams(location.search)
