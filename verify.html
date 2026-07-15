@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
 <title>Ms. Lin 信箱驗證</title>
+<!--
+  裝置分流（2026-07-13 需求對齊）：
+  - 手機開本頁：**不碰一次性 token** — 原封放進「開啟 App 完成驗證」按鈕的
+    deep link（<scheme>://email-verified?token_hash=…&type=…），由 App 端
+    verifyEmailFromUrl 消耗 = 驗證＋自動登入一次完成。網頁在這裡搶先驗證
+    會把票用掉，App 就只能開起來卻沒登入。
+  - 電腦開本頁：照舊載入即 verifyOtp（persistSession:false，驗完不留登入
+    狀態）— 電腦上沒有 App 可登入，驗證完成即達成目的。
+  - 手機備援：「改在網頁上完成驗證」連結 → 走電腦同款流程（沒裝 App 等情境）。
+-->
 <style>
   :root { --brand:#5b5bff; --bg:#EEEEFF; }
   * { box-sizing:border-box; }
@@ -24,7 +34,9 @@
   .spinner{width:26px;height:26px;border:3px solid #d8d8f0;border-top-color:var(--brand);
            border-radius:50%;margin:8px auto;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
-  [hidden]{display:none}
+  /* !important：a.btn{display:block}（class+element）特異性高於 [hidden]（attribute），
+     沒有 !important 時隱藏中的按鈕會照樣顯示（2026-07-12 實測抓到的 bug）。 */
+  [hidden]{display:none !important}
 </style>
 </head>
 <body>
@@ -40,15 +52,15 @@
 
   <a id="openApp" class="btn primary" hidden>開啟 App</a>
   <a id="store"  class="btn ghost"  hidden target="_blank" rel="noopener">還沒安裝？取得 App</a>
+  <a id="webVerify" class="btn ghost" href="#" hidden>無法開啟 App？改在網頁上完成驗證</a>
 </main>
 
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// ── 兩個環境設定 ─────────────────────────────────────────────
+// ── 環境設定 ─────────────────────────────────────────────
 // anon key 是 public（本來就嵌在 App 內），可安全放前端。
-// Supabase URL 取自各專案 ref；scheme 對齊 gsat-app appVariant.js。
-// ⚠️ scheme/icon/store 與 login.html 的 ENVS map 重複，改任一邊請同步另一邊（待抽共用模組）。
+// Supabase URL 取自各專案 ref；scheme 對齊 gsat-app appVariant.js（此處含 ://，App 端是純名）。
 const ENVS = {
   prod: {
     url:   'https://rvmetywbpdmmxcxttwtn.supabase.co',
@@ -88,19 +100,25 @@ function show(statusText, detailText) {
 
 function ok() {
   show('✅ 信箱驗證成功！')
+  $('webVerify').hidden = true
   $('intro').hidden = false
-  const open = $('openApp'); open.hidden = false; open.href = env.scheme
+  const open = $('openApp')
+  open.textContent = '開啟 App'
+  open.hidden = false
+  open.href = env.scheme                              // 純開 App（票已用掉，App 端走一般登入）
   if (env.store) { const s = $('store'); s.hidden = false; s.href = env.store }
 }
 
-;(async () => {
-  // Supabase 有時會把錯誤直接放在 URL（連結過期等）
-  const urlErr = qs.get('error_description') || qs.get('error')
-  if (urlErr) return show('⚠️ 驗證失敗', decodeURIComponent(urlErr))
-  if (!token_hash) return show('⚠️ 連結無效', '缺少驗證參數，請改用信件中的完整連結。')
-
+// 網頁端當場消耗 token 完成驗證（桌機主路徑；手機備援路徑）。
+// persistSession:false → 在電腦 / 共用裝置驗證後不留下登入狀態。
+async function webVerify() {
+  $('webVerify').hidden = true
+  $('openApp').hidden = true
+  $('store').hidden = true
+  $('spin').hidden = false
+  $('status').textContent = '驗證中…'
+  $('detail').textContent = ''
   try {
-    // persistSession:false → 在電腦 / 共用裝置驗證後不留下登入狀態
     const sb = createClient(env.url, env.anon, { auth:{ persistSession:false } })
     const { error } = await sb.auth.verifyOtp({ token_hash, type })
     if (error) return show('⚠️ 驗證失敗', error.message)
@@ -108,7 +126,31 @@ function ok() {
   } catch (e) {
     show('⚠️ 發生錯誤', String(e?.message || e))
   }
-})()
+}
+
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+const urlErr = qs.get('error_description') || qs.get('error')
+
+if (urlErr) {
+  show('⚠️ 驗證失敗', decodeURIComponent(urlErr))
+} else if (!token_hash) {
+  show('⚠️ 連結無效', '缺少驗證參數，請改用信件中的完整連結。')
+} else if (isMobile) {
+  // 手機：不碰票。token 原封轉交 App，由 App 驗證＋自動登入一次完成。
+  show('差最後一步！', '點下方按鈕回到 App，完成驗證並直接登入。')
+  const open = $('openApp')
+  open.textContent = '開啟 App 完成驗證'
+  open.href = env.scheme + 'email-verified?token_hash=' + encodeURIComponent(token_hash) +
+              '&type=' + encodeURIComponent(type)
+  open.hidden = false
+  if (env.store) { const s = $('store'); s.hidden = false; s.href = env.store }
+  const wv = $('webVerify')
+  wv.hidden = false
+  wv.addEventListener('click', (e) => { e.preventDefault(); webVerify() })
+} else {
+  // 電腦：照舊當場驗證（沒有 App 可登入，驗證完成即達成目的）。
+  webVerify()
+}
 </script>
 </body>
 </html>
